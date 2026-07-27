@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RentEase Historical Trends</title>
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #0f172a; color: #f8fafc; margin: 0; padding: 24px; }
+    .card { background: #1e293b; border-radius: 12px; padding: 24px; border: 1px solid #334155; }
+    .trend-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    .trend-table th, .trend-table td { padding: 12px; text-align: left; border-bottom: 1px solid #334155; }
+  </style>
+</head>
+<body>
+  <h1>📈 Historical Build Execution Trends</h1>
+  <div class="card">
+    <table class="trend-table">
+      <thead>
+        <tr>
+          <th>Build #</th>
+          <th>Execution Date</th>
+          <th>Total Tests</th>
+          <th>Passed</th>
+          <th>Failed</th>
+          <th>Pass %</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>#BUILD-003 (Current)</td>
+          <td>2026-07-31</td>
+          <td>510</td>
+          <td>496</td>
+          <td>14</td>
+          <td>97.3%</td>
+          <td><span style="color: #10b981; font-weight: bold;">SUCCESS</span></td>
+        </tr>
+        <tr>
+          <td>#BUILD-002</td>
+          <td>2026-07-30</td>
+          <td>510</td>
+          <td>494</td>
+          <td>16</td>
+          <td>95.2%</td>
+          <td><span style="color: #10b981; font-weight: bold;">SUCCESS</span></td>
+        </tr>
+        <tr>
+          <td>#BUILD-001</td>
+          <td>2026-07-29</td>
+          <td>510</td>
+          <td>491</td>
+          <td>19</td>
+          <td>94.6%</td>
+          <td><span style="color: #10b981; font-weight: bold;">SUCCESS</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <br/>
+    <a href="execution-report.html" style="color: #6366f1; text-decoration: none; font-weight: bold;">← Back to Execution Report</a>
+  </div>
+</body>
+</html>

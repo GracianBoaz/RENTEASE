@@ -1,0 +1,36 @@
+name: Deploy Reports to GitHub Pages
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Test Results/**'
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  deploy-github-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Prepare Public Reports Directory
+        run: |
+          mkdir -p public_reports/reports/latest
+          mkdir -p public_reports/reports/history/build-${{ github.run_number }}
+          if [ -d "Test Results/HTML" ]; then
+            cp -r "Test Results/HTML/"* public_reports/reports/latest/
+            cp -r "Test Results/HTML/"* public_reports/reports/history/build-${{ github.run_number }}/
+          fi
+          echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=reports/latest/execution-report.html" /></head></html>' > public_reports/index.html
+
+      - name: Publish to GitHub Pages Branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public_reports
+          force_orphan: true
