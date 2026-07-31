@@ -1,0 +1,131 @@
+/**
+ * Appium E2E — JSON & Markdown Summary Report Engine
+ * Generates: execution-results.json + summary.md (GitHub Actions step summary compatible)
+ */
+import fs from 'fs';
+import path from 'path';
+
+export function generateAppiumE2EJsonReports(results, outputDir = 'appium-e2e/reports/json') {
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const total   = results.length;
+  const passed  = results.filter(r => r.status === 'PASS').length;
+  const failed  = results.filter(r => r.status === 'FAIL').length;
+  const skipped = results.filter(r => r.status === 'SKIP').length;
+  const passRate = total > 0 ? ((passed / total) * 100).toFixed(2) : '0.00';
+  const totalMs = results.reduce((s, r) => s + (r.durationMs || 0), 0);
+  const uniqueScreens = [...new Set(results.map(r => r.screen))];
+  const uniqueSpecs   = [...new Set(results.map(r => r.spec))];
+  const failedTests   = results.filter(r => r.status === 'FAIL');
+
+  // ── JSON Payload ──────────────────────────────────────────────────────
+  const payload = {
+    meta: {
+      framework: 'RentEase Appium E2E v2.0',
+      platform: 'Android',
+      automationEngine: 'Appium 2.x UiAutomator2',
+      appPackage: 'com.rentease.app',
+      generatedAt: new Date().toISOString(),
+      executionDurationMs: totalMs
+    },
+    summary: {
+      total, passed, failed, skipped,
+      passRate: passRate + '%',
+      uniqueScreens: uniqueScreens.length,
+      uniqueSpecs: uniqueSpecs.length,
+      qualityGate: parseFloat(passRate) >= 90 ? 'PASSED' : 'FAILED'
+    },
+    specBreakdown: uniqueSpecs.map(spec => {
+      const st = results.filter(r => r.spec === spec);
+      const sp = st.filter(r => r.status === 'PASS').length;
+      const sf = st.filter(r => r.status === 'FAIL').length;
+      return { spec, total: st.length, passed: sp, failed: sf, passRate: ((sp / st.length) * 100).toFixed(1) + '%' };
+    }),
+    screenBreakdown: uniqueScreens.map(screen => {
+      const st = results.filter(r => r.screen === screen);
+      const sp = st.filter(r => r.status === 'PASS').length;
+      return { screen, total: st.length, passed: sp, failed: st.length - sp };
+    }),
+    failedTests: failedTests.map(t => ({
+      id: t.id, spec: t.spec, screen: t.screen, title: t.title,
+      failureReason: t.failureReason || 'Assertion or selector timeout',
+      durationMs: t.durationMs
+    })),
+    results
+  };
+
+  const jsonPath = path.join(outputDir, 'execution-results.json');
+  fs.writeFileSync(jsonPath, JSON.stringify(payload, null, 2));
+  console.log(`[JsonReporter] JSON Results: ${jsonPath}`);
+
+  // ── Markdown Summary ──────────────────────────────────────────────────
+  const specTable = uniqueSpecs.map(spec => {
+    const st = results.filter(r => r.spec === spec);
+    const sp = st.filter(r => r.status === 'PASS').length;
+    const sf = st.filter(r => r.status === 'FAIL').length;
+    const rate = ((sp / st.length) * 100).toFixed(1);
+    return `| ${spec.replace(/_/g, ' ')} | ${st.length} | ${sp} | ${sf} | ${rate}% | ${sf === 0 ? '✅ PASSED' : '❌ FAILED'} |`;
+  }).join('\n');
+
+  const failedSection = failedTests.length === 0
+    ? '> ✅ **No test failures recorded in this run.**'
+    : failedTests.slice(0, 10).map(t =>
+        `- **\`${t.id}\`** (${t.screen}): ${t.title}\n  > 💥 _${t.failureReason || 'Selector timeout'}_`
+      ).join('\n') + (failedTests.length > 10 ? `\n\n_...and ${failedTests.length - 10} more. See full report._` : '');
+
+  const markdown = `## 📱 RentEase Appium Android E2E — Execution Summary
+
+| Metric | Value |
+|--------|-------|
+| **Total Test Cases** | ${total} |
+| **✅ Passed** | ${passed} |
+| **❌ Failed** | ${failed} |
+| **⏭  Skipped** | ${skipped} |
+| **Pass Rate** | **${passRate}%** |
+| **Execution Duration** | ${(totalMs / 1000).toFixed(2)}s |
+| **Screens Validated** | ${uniqueScreens.length} / 42 |
+| **Quality Gate** | ${parseFloat(passRate) >= 90 ? '✅ **PASSED**' : '❌ **FAILED**'} |
+
+---
+
+### 📁 Spec File Breakdown
+
+| Spec File | Total | Passed | Failed | Pass Rate | Status |
+|-----------|-------|--------|--------|-----------|--------|
+${specTable}
+
+---
+
+### ❌ Failed Tests (Top ${Math.min(10, failedTests.length)})
+
+${failedSection}
+
+---
+
+### 📦 Artifacts
+
+| Report | Location |
+|--------|----------|
+| Master Excel Report (5 sheets) | \`appium-e2e/reports/excel/Appium_E2E_Master_Report_*.xlsx\` |
+| Passed Tests Excel | \`appium-e2e/reports/excel/Appium_E2E_Passed_Tests_*.xlsx\` |
+| Failed Tests Excel | \`appium-e2e/reports/excel/Appium_E2E_Failed_Tests_*.xlsx\` |
+| Permissions Audit Excel | \`appium-e2e/reports/excel/Appium_E2E_Android_Permissions_*.xlsx\` |
+| Interactive HTML Report | \`appium-e2e/reports/html/execution-report.html\` |
+| Executive Dashboard | \`appium-e2e/reports/html/dashboard.html\` |
+| JSON Results Payload | \`appium-e2e/reports/json/execution-results.json\` |
+| Screenshots | \`appium-e2e/reports/screenshots/\` |
+| Execution Logs | \`appium-e2e/reports/logs/\` |
+
+---
+
+_Generated by RentEase Appium E2E Framework v2.0 — ${new Date().toISOString()}_
+`;
+
+  const mdDir = 'appium-e2e/reports/summary';
+  fs.mkdirSync(mdDir, { recursive: true });
+  const mdPath = path.join(mdDir, 'summary.md');
+  fs.writeFileSync(mdPath, markdown);
+  console.log(`[JsonReporter] Markdown Summary: ${mdPath}`);
+
+  return { jsonPath, mdPath };
+}

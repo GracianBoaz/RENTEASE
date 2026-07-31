@@ -11,6 +11,7 @@
     "test:web": "node tests/run-all-tests.js --web-only",
     "test:mobile": "node tests/run-all-tests.js --mobile-only",
     "test:appium:android": "node appium-mobile/run-appium-android.js",
+    "test:appium:e2e": "node appium-e2e/runner/runAppiumE2E.js",
     "test:load": "node tests/load/loadTestRunner.js",
     "test:automation": "node automation/runners/runAutomation.js",
     "test:selenium:live": "node automation/selenium/runners/runSeleniumLive.js",

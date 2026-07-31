@@ -1,0 +1,17 @@
+{
+  "name": "rentease-appium-e2e",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Enterprise Appium 2.x Android E2E Framework — 300+ Test Cases, Excel/HTML/JSON Reports",
+  "main": "runner/runAppiumE2E.js",
+  "scripts": {
+    "test": "node runner/runAppiumE2E.js",
+    "test:android": "node runner/runAppiumE2E.js",
+    "generate:data": "node utils/generateTestData.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "webdriverio": "^9.30.0"
+  }
+}
