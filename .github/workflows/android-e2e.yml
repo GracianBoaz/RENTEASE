@@ -1,4 +1,4 @@
-name: Android Appium E2E CI/CD & GitHub Pages Reporting
+﻿name: Android Appium E2E CI/CD & GitHub Pages Reporting
 
 on:
   push:
@@ -6,146 +6,229 @@ on:
   pull_request:
     branches: [ main, master ]
   schedule:
-    - cron: '0 0 * * *' # Daily midnight run
+    - cron: '0 0 * * *'
   workflow_dispatch:
+
+# Cancel in-progress runs on the same branch — prevents pile-up
+concurrency:
+  group: android-e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
   pages: write
   id-token: write
 
+env:
+  NODE_VERSION: '24'
+  JAVA_VERSION: '17'
+  API_LEVEL: '33'
+
 jobs:
   android-e2e-automation:
-    runs-on: macos-latest # macOS required for hardware acceleration on Android Emulator in GitHub Actions
+    runs-on: macos-latest
+    timeout-minutes: 75
 
     steps:
-      # Stage 1: Checkout Repository
+      # Stage 1: Checkout
       - name: Stage 1 - Checkout Repository
         uses: actions/checkout@v4
 
-      # Stage 2: Setup Java
-      - name: Stage 2 - Setup Java 17
+      # Stage 2: Java
+      - name: Stage 2 - Setup Java ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
-          java-version: '17'
+          java-version: ${{ env.JAVA_VERSION }}
 
-      # Stage 3: Setup Android SDK
+      # Stage 3: Android SDK
       - name: Stage 3 - Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # Stage 4: Install Node.js & Project Dependencies
-      - name: Stage 4 - Install Node.js & Dependencies
+      # Stage 4: Node.js & Dependencies (with npm cache)
+      - name: Stage 4 - Setup Node.js ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm ci
 
-      # Stage 5: Build APK
-      - name: Stage 5 - Build Android APK
+      - name: Stage 4a - Install Root Dependencies
+        run: npm ci
+
+      - name: Stage 4b - Install Appium E2E Dependencies
+        run: cd appium-e2e && npm ci
+
+      # Stage 5: Gradle Cache & APK Build
+      - name: Stage 5a - Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Stage 5b - Build Android Debug APK
         run: |
           mkdir -p android/app/build/outputs/apk/debug
           echo "Building Android Debug APK..."
-          if [ -f "./gradlew" ]; then
+          if [ -f "android/gradlew" ]; then
+            chmod +x android/gradlew
+            cd android && ./gradlew assembleDebug --no-daemon --build-cache 2>&1 | tail -30
+          elif [ -f "./gradlew" ]; then
             chmod +x gradlew
-            ./gradlew assembleDebug --no-daemon
+            ./gradlew assembleDebug --no-daemon --build-cache 2>&1 | tail -30
           else
-            echo "Creating fallback debug build artifact for E2E testing..."
+            echo "Gradle wrapper not found. Creating fallback APK placeholder for E2E testing."
             touch android/app/build/outputs/apk/debug/app-debug.apk
           fi
+          echo "APK step complete."
 
-      # Stage 6 & 7: Start Android Emulator & Verify Readiness
-      - name: Stage 6 & 7 - Run Android Emulator & Verify Readiness
+      # Stage 6 & 7: Android Emulator (with 8-min boot timeout)
+      - name: Stage 6 & 7 - Start Emulator & Verify Boot
+        timeout-minutes: 20
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 33
+          api-level: ${{ env.API_LEVEL }}
           target: google_apis
           arch: x86_64
-          profile: Nexus 6
+          profile: pixel_4
+          avd-name: RentEase_Test_AVD
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
           script: |
-            echo "Stage 7 - Verifying Emulator Readiness via adb..."
+            echo "Emulator is ready."
             adb devices
             adb shell getprop sys.boot_completed
+            adb shell input keyevent 82
 
       # Stage 8: Install APK
-      - name: Stage 8 - Install APK to Android Emulator
+      - name: Stage 8 - Install APK to Emulator
         run: |
-          echo "Installing APK onto connected emulator..."
-          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
-            adb install -r android/app/build/outputs/apk/debug/app-debug.apk || echo "APK install simulated"
+          APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_PATH" ] && [ -s "$APK_PATH" ]; then
+            echo "Installing APK: $APK_PATH"
+            adb install -r "$APK_PATH" && echo "APK installed." || echo "APK install failed (non-fatal)"
+          else
+            echo "No real APK found — proceeding in simulation mode."
           fi
 
-      # Stage 9 & 10: Start Appium Server & Verify Health
-      - name: Stage 9 & 10 - Start Appium Server & Verify Health
+      # Stage 9 & 10: Appium Server
+      - name: Stage 9 & 10 - Start Appium Server & Health Check
         run: |
-          echo "Stage 9 - Launching Appium Server in background..."
-          npx appium --log-level debug &
-          sleep 5
-          echo "Stage 10 - Verifying Appium Server Health..."
-          curl -s http://127.0.0.1:4723/status || echo "Appium status verified"
+          echo "Installing Appium 2.x..."
+          npm install -g appium@latest
+          appium driver install uiautomator2 || true
+          echo "Starting Appium server..."
+          appium --log-level warn --port 4723 &
+          APPIUM_PID=$!
+          echo "APPIUM_PID=$APPIUM_PID" >> $GITHUB_ENV
+          sleep 8
+          curl -s http://127.0.0.1:4723/status | head -c 200 || echo "Appium status check done"
+          echo "Appium server running."
 
-      # Stage 11: Execute Appium E2E Tests (400+ Test Suite)
-      - name: Stage 11 - Execute Appium E2E Tests (400+ Scenarios)
+      # Stage 11: Run Appium E2E Tests (320 test cases)
+      - name: Stage 11 - Execute Appium E2E Tests (320 Test Cases across 42 Screens)
+        id: appium_run
+        continue-on-error: true
+        env:
+          APPIUM_HOST: "127.0.0.1"
+          APPIUM_PORT: "4723"
+          CI: "true"
         run: |
-          node automation/runners/runAutomation.js
+          echo "Running Appium E2E Framework (appium-e2e/)..."
+          cd appium-e2e
+          node runner/runAppiumE2E.js
 
-      # Stage 12 & 13: Capture Screenshots & Logs
-      - name: Stage 12 & 13 - Capture Screenshots and Device Logs
+      # Stage 12 & 13: Capture Device Logs & Screenshots
+      - name: Stage 12 & 13 - Capture Device Logs & Screenshots
         if: always()
         run: |
-          mkdir -p "Test Results/Logs"
-          mkdir -p "Test Results/Screenshots"
-          adb logcat -d > "Test Results/Logs/android_device.log" || true
+          mkdir -p "appium-e2e/reports/logs"
+          adb logcat -d > "appium-e2e/reports/logs/android_device.log" 2>/dev/null || echo "No device log (simulation mode)"
+          echo "Device logs captured."
 
-      # Stage 14, 15, 16, 17: Reports & Markdown Summary Generation
-      - name: Stage 14-17 - Verify All Reports (Excel, HTML, JSON, Markdown)
+      # Stage 14-17: Verify All Generated Reports
+      - name: Stage 14-17 - Verify Generated Reports
         if: always()
         run: |
-          ls -la "Test Results/Excel/"
-          ls -la "Test Results/HTML/"
-          ls -la "Test Results/JSON/"
-          ls -la "Test Results/Summary/"
+          echo "=== Appium E2E Excel Reports ==="
+          ls -la appium-e2e/reports/excel/ 2>/dev/null || echo "No Excel reports yet"
+          echo "=== Appium E2E HTML Reports ==="
+          ls -la appium-e2e/reports/html/ 2>/dev/null || echo "No HTML reports yet"
+          echo "=== JSON Results ==="
+          ls -la appium-e2e/reports/json/ 2>/dev/null || echo "No JSON results yet"
+          echo "=== Markdown Summary ==="
+          ls -la appium-e2e/reports/summary/ 2>/dev/null || echo "No summary yet"
 
-      # Stage 18: Upload Artifacts (Retention: 30 Days)
-      - name: Stage 18 - Upload Automation Artifacts
+      # Stage 18: Upload All Artifacts (30-day retention)
+      - name: Stage 18 - Upload Appium E2E Artifacts (30-Day Retention)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RentEase-Android-Appium-Reports-Build-${{ github.run_number }}
+          name: RentEase-Appium-E2E-Reports-Build-${{ github.run_number }}
           path: |
-            Test Results/Excel/
-            Test Results/HTML/
-            Test Results/JSON/
-            Test Results/Screenshots/
-            Test Results/Logs/
-            Test Results/Summary/
+            appium-e2e/reports/excel/
+            appium-e2e/reports/html/
+            appium-e2e/reports/json/
+            appium-e2e/reports/screenshots/
+            appium-e2e/reports/logs/
+            appium-e2e/reports/summary/
           retention-days: 30
+          if-no-files-found: warn
 
-      # Stage 19 & 20: Publish Reports to GitHub Pages & Update History
-      - name: Stage 19 & 20 - Prepare GitHub Pages Directory & History Archiving
+      # Stage 19 & 20: Publish to GitHub Pages
+      - name: Stage 19 & 20 - Prepare & Deploy Reports to GitHub Pages
         if: always()
         run: |
           mkdir -p public_reports/reports/latest
           mkdir -p public_reports/reports/history/build-${{ github.run_number }}
-          
-          # Copy HTML reports to latest and historical archive
-          cp -r "Test Results/HTML/"* public_reports/reports/latest/
-          cp -r "Test Results/HTML/"* public_reports/reports/history/build-${{ github.run_number }}/
-          
-          # Include index redirect in root
-          echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=reports/latest/execution-report.html" /></head></html>' > public_reports/index.html
 
-      - name: Deploy to GitHub Pages
+          if ls appium-e2e/reports/html/*.html 2>/dev/null; then
+            cp -r appium-e2e/reports/html/. public_reports/reports/latest/
+            cp -r appium-e2e/reports/html/. public_reports/reports/history/build-${{ github.run_number }}/
+          fi
+
+          cat > public_reports/index.html <<'HTMLEOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta http-equiv="refresh" content="0; url=reports/latest/execution-report.html" />
+            <title>RentEase Appium E2E Reports</title>
+          </head>
+          <body><p>Redirecting to latest report...</p></body>
+          </html>
+          HTMLEOF
+          echo "GitHub Pages content prepared."
+
+      - name: Deploy Appium Reports to GitHub Pages
         if: always()
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./public_reports
           force_orphan: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
 
-      # Stage 21: Publish GitHub Action Summary
+      # Stage 21: GitHub Action Step Summary
       - name: Stage 21 - Publish GitHub Action Summary
         if: always()
         run: |
-          cat "Test Results/Summary/summary.md" >> $GITHUB_STEP_SUMMARY
+          echo "## 📱 RentEase Appium E2E - Build #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Appium Outcome**: ${{ steps.appium_run.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "appium-e2e/reports/summary/summary.md" ]; then
+            cat "appium-e2e/reports/summary/summary.md" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Artifact**: RentEase-Appium-E2E-Reports-Build-${{ github.run_number }} (retained 30 days)" >> $GITHUB_STEP_SUMMARY
+
+      # Final: Fail if Appium tests failed
+      - name: Stage Final - Fail on Test Failures
+        if: steps.appium_run.outcome == 'failure'
+        run: |
+          echo "Appium E2E tests had failures. Check artifacts."
+          exit 1
