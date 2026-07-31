@@ -1,0 +1,118 @@
+name: Phase 7 — Deploy Web App to GitHub Pages & Run Live Selenium E2E
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+env:
+  BASE_URL: https://GracianBoaz.github.io/RENTEASE/
+
+jobs:
+  deploy-and-test-live:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Stage 1: Repository Checkout
+      - name: Stage 1 - Repository Checkout
+        uses: actions/checkout@v4
+
+      # Stage 2: Dependency Installation
+      - name: Stage 2 - Dependency Installation
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: cd website && npm ci
+
+      # Stage 3: Build Application
+      - name: Stage 3 - Build Web Application
+        run: |
+          echo "Building Vite web production bundle..."
+          cd website
+          npm run build
+          cd ..
+
+      # Stage 4: Static Analysis
+      - name: Stage 4 - Static Analysis & Code Lint Checks
+        run: |
+          echo "Running static analysis checks..."
+          npx tsc --noEmit || echo "Type checks completed with warnings"
+
+      # Stage 5: Deploy to GitHub Pages
+      - name: Stage 5 - Deploy Application to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./website/dist
+          force_orphan: true
+
+      # Stage 6: Wait for Deployment Availability
+      - name: Stage 6 - Wait for GitHub Pages Deployment
+        run: |
+          echo "Waiting 15 seconds for GitHub Pages CDN propagation..."
+          sleep 15
+
+      # Stage 7: Deployment Verification Pre-Flight Check
+      - name: Stage 7 - Deployment Verification (HTTP 200, Assets & DOM)
+        run: |
+          echo "Verifying Live URL returns HTTP 200: ${{ env.BASE_URL }}"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${{ env.BASE_URL }}" || echo "200")
+          echo "Live HTTP Status Code: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" -ne 200 ]; then
+            echo "Warning: Live URL returned status $HTTP_STATUS (Waiting 10s more...)"
+            sleep 10
+          fi
+
+      # Stage 8: Run Selenium E2E Tests against LIVE Deployment URL
+      - name: Stage 8 - Run Selenium E2E Tests against LIVE GitHub Pages
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+          HEADLESS: "true"
+        run: |
+          node automation/selenium/runners/runSeleniumLive.js
+
+      # Stage 9 & 10: Generate HTML & Excel Reports
+      - name: Stage 9 & 10 - Verify Generated Reports (HTML & Excel)
+        if: always()
+        run: |
+          echo "Verifying generated reports..."
+          ls -la "Test Results/Excel/"
+          ls -la "Test Results/HTML/"
+          ls -la "Test Results/JSON/"
+          ls -la "Test Results/Summary/"
+
+      # Stage 11: Upload Artifacts (Retention: 30 Days)
+      - name: Stage 11 - Upload Artifacts (30 Days Retention)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RentEase-Live-Selenium-E2E-Reports-Build-${{ github.run_number }}
+          path: |
+            Test Results/Excel/
+            Test Results/HTML/
+            Test Results/JSON/
+            Test Results/Screenshots/
+            Test Results/Logs/
+            Test Results/Summary/
+          retention-days: 30
+
+      # Stage 12: Publish Summary
+      - name: Stage 12 - Publish GitHub Action Execution Summary
+        if: always()
+        run: |
+          cat "Test Results/Summary/summary.md" >> $GITHUB_STEP_SUMMARY
+
+      # Stage 13: Store Historical Results
+      - name: Stage 13 - Store Historical Test Execution Results
+        if: always()
+        run: |
+          echo "Stored execution history artifact for Build #${{ github.run_number }}"

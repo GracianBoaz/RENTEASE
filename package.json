@@ -13,6 +13,7 @@
     "test:appium:android": "node appium-mobile/run-appium-android.js",
     "test:load": "node tests/load/loadTestRunner.js",
     "test:automation": "node automation/runners/runAutomation.js",
+    "test:selenium:live": "node automation/selenium/runners/runSeleniumLive.js",
     "generate:reports": "node automation/runners/runAutomation.js",
     "test:all": "node tests/run-all-tests.js"
   },
