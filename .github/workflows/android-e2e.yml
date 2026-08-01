@@ -22,17 +22,15 @@ permissions:
 env:
   NODE_VERSION: '24'
   JAVA_VERSION: '17'
-  # API 35 + arm64-v8a = native ARM image on Apple Silicon (macos-latest)
-  # macos-latest runners are now arm64 (M-series); x86_64 emulators require
-  # QEMU software emulation on ARM hosts and almost always time out.
-  # arm64-v8a runs natively via Hypervisor.framework — no -gpu flag needed.
-  API_LEVEL: '35'
-  AVD_TARGET: 'google_apis'
-  AVD_ARCH: 'arm64-v8a'
+  # Ubuntu runners support KVM hardware acceleration natively.
+  # We use x86_64 and API 29 for the fastest, most reliable boot time.
+  API_LEVEL: '29'
+  AVD_TARGET: 'default'
+  AVD_ARCH: 'x86_64'
 
 jobs:
   android-e2e-automation:
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 75
 
     steps:
