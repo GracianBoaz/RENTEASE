@@ -154,8 +154,94 @@ jobs:
       #   - NO -gpu flag → macOS uses Hypervisor.framework (HW acceleration)
       #   - api-level: 29 + target: default → pre-installed, no download needed
       #   - force-avd-creation: false → reuses cached AVD above
-      #   - disable-animations: true → prevents test flakiness
       # ──────────────────────────────────────────────────────────────────
+      - name: Pre-Stage - Create Test Script
+        run: |
+          cat > run_emulator_tests.sh << 'EOF'
+          #!/bin/bash
+          set -e
+
+          echo "============================================="
+          echo "Stage 7 - Emulator Boot Verification"
+          echo "============================================="
+          echo "Connected devices:"
+          adb devices
+          BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+          echo "sys.boot_completed = $BOOT"
+          # Dismiss any lock screen
+          adb shell input keyevent 82 || true
+          echo "Emulator is ready."
+
+          echo "============================================="
+          echo "Stage 8 - Installing APK onto Emulator"
+          echo "============================================="
+          APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_PATH" ] && [ -s "$APK_PATH" ]; then
+            echo "APK found at $APK_PATH. Installing..."
+            adb install -r "$APK_PATH" \
+              && echo "APK installed successfully." \
+              || echo "APK install failed (non-fatal — continuing in simulation mode)"
+          else
+            echo "No real APK found (placeholder or build skipped). Running in simulation mode."
+          fi
+
+          echo "============================================="
+          echo "Stage 9 & 10 - Starting Appium Server"
+          echo "============================================="
+          # Start Appium in background
+          appium --log-level warn --port 4723 > /tmp/appium.log 2>&1 &
+          APPIUM_PID=$!
+          echo "Appium PID: $APPIUM_PID"
+          # Wait for Appium to be ready
+          for i in $(seq 1 12); do
+            sleep 5
+            STATUS=$(curl -s http://127.0.0.1:4723/status 2>/dev/null | head -c 50)
+            if [ -n "$STATUS" ]; then
+              echo "Appium server ready after $((i*5))s"
+              break
+            fi
+            echo "Waiting for Appium... attempt $i/12"
+          done
+          curl -s http://127.0.0.1:4723/status | head -c 200 || echo "Appium health check done"
+
+          echo "============================================="
+          echo "Stage 11 - Executing Appium E2E Tests (320 Cases / 42 Screens)"
+          echo "============================================="
+          cd appium-e2e
+          # Set env vars for Appium driver (live mode)
+          export APPIUM_HOST="127.0.0.1"
+          export APPIUM_PORT="4723"
+          export CI="true"
+          node runner/runAppiumE2E.js
+          TEST_EXIT=$?
+          cd ..
+          echo "Test runner exited with code: $TEST_EXIT"
+
+          echo "============================================="
+          echo "Stage 12 - Capturing Android Device Logs"
+          echo "============================================="
+          mkdir -p appium-e2e/reports/logs
+          mkdir -p appium-e2e/reports/screenshots
+
+          # Save ADB logcat
+          adb logcat -d > appium-e2e/reports/logs/android_device.log 2>/dev/null \
+            && echo "ADB logcat saved." \
+            || echo "No adb logs (non-fatal)"
+
+          # Save Appium server log
+          cp /tmp/appium.log appium-e2e/reports/logs/appium_server.log 2>/dev/null \
+            || echo "No Appium server log"
+
+          # Final screenshot of device state
+          adb shell screencap /sdcard/final_state.png 2>/dev/null \
+            && adb pull /sdcard/final_state.png appium-e2e/reports/screenshots/final_state.png 2>/dev/null \
+            && echo "Final screenshot saved." \
+            || echo "Screenshot not captured (non-fatal)"
+
+          exit $TEST_EXIT
+          EOF
+          chmod +x run_emulator_tests.sh
+
       - name: Stage 6-12 - Start Emulator (HW Accel) + Install APK + Run Appium E2E
         id: appium_run
         continue-on-error: true
@@ -168,91 +254,11 @@ jobs:
           profile: pixel_2
           avd-name: RentEase_CI_AVD
           force-avd-creation: false
-          # NO -gpu flag: allows macOS Hypervisor.framework hardware acceleration
-          # swiftshader_indirect = software rendering = slow + unreliable boot
           emulator-options: -no-snapshot-save -no-window -noaudio -no-boot-anim -camera-back none
           disable-animations: true
-          script: |
-            set -e
+          script: ./run_emulator_tests.sh
 
-            echo "============================================="
-            echo "Stage 7 - Emulator Boot Verification"
-            echo "============================================="
-            echo "Connected devices:"
-            adb devices
-            BOOT=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
-            echo "sys.boot_completed = $BOOT"
-            # Dismiss any lock screen
-            adb shell input keyevent 82 || true
-            echo "Emulator is ready."
 
-            echo "============================================="
-            echo "Stage 8 - Installing APK onto Emulator"
-            echo "============================================="
-            APK_PATH="android/app/build/outputs/apk/debug/app-debug.apk"
-            if [ -f "$APK_PATH" ] && [ -s "$APK_PATH" ]; then
-              echo "APK found at $APK_PATH. Installing..."
-              adb install -r "$APK_PATH" \
-                && echo "APK installed successfully." \
-                || echo "APK install failed (non-fatal — continuing in simulation mode)"
-            else
-              echo "No real APK found (placeholder or build skipped). Running in simulation mode."
-            fi
-
-            echo "============================================="
-            echo "Stage 9 & 10 - Starting Appium Server"
-            echo "============================================="
-            # Start Appium in background
-            appium --log-level warn --port 4723 > /tmp/appium.log 2>&1 &
-            APPIUM_PID=$!
-            echo "Appium PID: $APPIUM_PID"
-            # Wait for Appium to be ready
-            for i in $(seq 1 12); do
-              sleep 5
-              STATUS=$(curl -s http://127.0.0.1:4723/status 2>/dev/null | head -c 50)
-              if [ -n "$STATUS" ]; then
-                echo "Appium server ready after $((i*5))s"
-                break
-              fi
-              echo "Waiting for Appium... attempt $i/12"
-            done
-            curl -s http://127.0.0.1:4723/status | head -c 200 || echo "Appium health check done"
-
-            echo "============================================="
-            echo "Stage 11 - Executing Appium E2E Tests (320 Cases / 42 Screens)"
-            echo "============================================="
-            cd appium-e2e
-            # Set env vars for Appium driver (live mode)
-            export APPIUM_HOST="127.0.0.1"
-            export APPIUM_PORT="4723"
-            export CI="true"
-            node runner/runAppiumE2E.js
-            TEST_EXIT=$?
-            cd ..
-            echo "Test runner exited with code: $TEST_EXIT"
-
-            echo "============================================="
-            echo "Stage 12 - Capturing Android Device Logs"
-            echo "============================================="
-            mkdir -p appium-e2e/reports/logs
-            mkdir -p appium-e2e/reports/screenshots
-
-            # Save ADB logcat
-            adb logcat -d > appium-e2e/reports/logs/android_device.log 2>/dev/null \
-              && echo "ADB logcat saved." \
-              || echo "No adb logs (non-fatal)"
-
-            # Save Appium server log
-            cp /tmp/appium.log appium-e2e/reports/logs/appium_server.log 2>/dev/null \
-              || echo "No Appium server log"
-
-            # Final screenshot of device state
-            adb shell screencap /sdcard/final_state.png 2>/dev/null \
-              && adb pull /sdcard/final_state.png appium-e2e/reports/screenshots/final_state.png 2>/dev/null \
-              && echo "Final screenshot saved." \
-              || echo "Screenshot not captured (non-fatal)"
-
-            exit $TEST_EXIT
 
       # ──────────────────────────────────────────────────────────────────
       # Stage 13: Verify All Report Files Exist
