@@ -22,12 +22,13 @@ permissions:
 env:
   NODE_VERSION: '24'
   JAVA_VERSION: '17'
-  # API 29 + default target = pre-installed image on every macOS runner
-  # Hardware acceleration (Hypervisor.framework) is automatic on macOS
-  # Do NOT set -gpu flag — it overrides HW acceleration with software fallback
-  API_LEVEL: '29'
-  AVD_TARGET: 'default'
-  AVD_ARCH: 'x86_64'
+  # API 35 + arm64-v8a = native ARM image on Apple Silicon (macos-latest)
+  # macos-latest runners are now arm64 (M-series); x86_64 emulators require
+  # QEMU software emulation on ARM hosts and almost always time out.
+  # arm64-v8a runs natively via Hypervisor.framework — no -gpu flag needed.
+  API_LEVEL: '35'
+  AVD_TARGET: 'google_apis'
+  AVD_ARCH: 'arm64-v8a'
 
 jobs:
   android-e2e-automation:
@@ -307,29 +308,31 @@ jobs:
             echo "HTML reports copied successfully."
           else
             # Fallback page if reports weren't generated
-            cat > public_reports/reports/latest/index.html << 'FALLBACK'
-            <!DOCTYPE html>
-            <html><head><meta charset="UTF-8">
-            <title>RentEase Appium E2E — No Report</title>
-            </head><body>
-            <h2>No E2E report generated — emulator or test runner failed.</h2>
-            <p>Check the Actions logs and artifacts for details.</p>
-            </body></html>
-            FALLBACK
+            # NOTE: heredocs can't be used here — YAML run: | indents lines,
+            # so the closing token is never seen at column 0 by bash.
+            printf '%s\n' \
+              '<!DOCTYPE html>' \
+              '<html><head><meta charset="UTF-8">' \
+              '<title>RentEase Appium E2E - No Report</title>' \
+              '</head><body>' \
+              '<h2>No E2E report generated - emulator or test runner failed.</h2>' \
+              '<p>Check the Actions logs and artifacts for details.</p>' \
+              '</body></html>' \
+              > public_reports/reports/latest/index.html
             echo "No HTML reports — fallback page written."
           fi
 
-          cat > public_reports/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta http-equiv="refresh" content="0; url=reports/latest/execution-report.html" />
-            <title>RentEase Appium E2E Reports</title>
-          </head>
-          <body><p>Redirecting to latest Appium E2E report...</p></body>
-          </html>
-          HTMLEOF
+          printf '%s\n' \
+            '<!DOCTYPE html>' \
+            '<html lang="en">' \
+            '<head>' \
+            '<meta charset="UTF-8">' \
+            '<meta http-equiv="refresh" content="0; url=reports/latest/execution-report.html" />' \
+            '<title>RentEase Appium E2E Reports</title>' \
+            '</head>' \
+            '<body><p>Redirecting to latest Appium E2E report...</p></body>' \
+            '</html>' \
+            > public_reports/index.html
           echo "GitHub Pages directory ready."
 
       - name: Stage 16 - Deploy Reports to GitHub Pages
