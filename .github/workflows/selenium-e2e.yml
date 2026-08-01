@@ -1,0 +1,98 @@
+name: Web Selenium E2E CI/CD & Reporting
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 1 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: selenium-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  selenium-e2e-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Run Selenium E2E Tests
+        run: npm run test:selenium:live
+        env:
+          HEADLESS: "true"
+
+      - name: Upload Selenium Artifacts (30-Day Retention)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RentEase-Selenium-Reports-Build-${{ github.run_number }}
+          path: automation/selenium/reports/
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: Prepare GitHub Pages Report Directory
+        if: always()
+        run: |
+          mkdir -p public_reports/selenium/latest
+          mkdir -p "public_reports/selenium/history/build-${{ github.run_number }}"
+
+          if ls automation/selenium/reports/html/*.html 1> /dev/null 2>&1; then
+            cp -r automation/selenium/reports/html/. public_reports/selenium/latest/
+            cp -r automation/selenium/reports/html/. "public_reports/selenium/history/build-${{ github.run_number }}/"
+            echo "HTML reports copied successfully."
+          else
+            printf '%s\n' \
+              '<!DOCTYPE html>' \
+              '<html><head><meta charset="UTF-8">' \
+              '<title>RentEase Selenium E2E - No Report</title>' \
+              '</head><body>' \
+              '<h2>No E2E report generated - test runner failed.</h2>' \
+              '<p>Check the Actions logs and artifacts for details.</p>' \
+              '</body></html>' \
+              > public_reports/selenium/latest/index.html
+          fi
+
+      - name: Deploy Reports to GitHub Pages
+        if: always()
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public_reports
+          keep_files: true
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
+
+      - name: Publish GitHub Action Execution Summary
+        if: always()
+        run: |
+          echo "## 🌐 RentEase Selenium Web E2E — Build #${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target URL** | Live App |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Browser** | Headless Chrome |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Artifact** | RentEase-Selenium-Reports-Build-${{ github.run_number }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f "automation/selenium/reports/summary/summary.md" ]; then
+            cat "automation/selenium/reports/summary/summary.md" >> $GITHUB_STEP_SUMMARY
+          fi
