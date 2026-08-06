@@ -1,0 +1,51 @@
+name: Performance & Baseline Load Testing
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: load-testing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  load-testing-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install Root Dependencies
+        run: npm ci
+
+      - name: Run Baseline Load Test (100 Users, 1 min)
+        continue-on-error: true
+        run: node tests/load/loadTestRunner.js
+
+      - name: Generate Load Testing 400 Cases Excel Report
+        if: always()
+        run: node tests/load/load400Generator.js
+
+      - name: Upload Load Testing Artifacts (30-Day Retention)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RentEase-Load-Testing-Reports-Build-${{ github.run_number }}
+          path: |
+            tests/load/reports/
+            Load_Test_400_Cases*.xlsx
+          retention-days: 30
+          if-no-files-found: warn
