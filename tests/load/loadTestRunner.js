@@ -154,7 +154,7 @@ export async function runLoadTest(options = {}) {
   console.log(`  - Total Errors / Failure Rate:    ${totalErrors} (${errorRate})`);
   console.log('--------------------------------------------------------------------');
 
-  const reportInfo = await generateLoadTestExcelReport(loadMetrics, './tests/reports');
+  const reportInfo = await generateLoadTestExcelReport(loadMetrics, './tests/load/reports');
 
   console.log('====================================================================');
   console.log('🎉 BASELINE LOAD TEST SUMMARY');

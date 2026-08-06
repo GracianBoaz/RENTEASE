@@ -215,6 +215,12 @@ jobs:
           node runner/runAppiumE2E.js
           TEST_EXIT=$?
           cd ..
+          
+          echo "============================================="
+          echo "Stage 11.5 - Generating Appium 400 Cases Excel Report"
+          echo "============================================="
+          node appium-mobile/tests/appium400Generator.js
+          
           echo "Test runner exited with code: $TEST_EXIT"
 
           echo "============================================="
@@ -294,6 +300,7 @@ jobs:
             appium-e2e/reports/screenshots/
             appium-e2e/reports/logs/
             appium-e2e/reports/summary/
+            appium-mobile/reports/
           retention-days: 30
           if-no-files-found: warn
 

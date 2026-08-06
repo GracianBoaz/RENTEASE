@@ -1,4 +1,4 @@
-﻿name: Phase 7 — Deploy Web App to GitHub Pages & Run Live Selenium E2E
+name: Phase 7 — Deploy Web App to GitHub Pages & Run Live Selenium E2E
 
 on:
   push:
@@ -111,6 +111,16 @@ jobs:
           echo "Test Cases: 470 across 14 modules"
           node automation/selenium/runners/runSeleniumLive.js
 
+      # Stage 8.5: Run Baseline Load Test (100 Users, 1 min)
+      - name: Stage 8.5 - Run Baseline Load Test
+        id: load_run
+        continue-on-error: true
+        env:
+          BASE_URL: ${{ env.BASE_URL }}
+        run: |
+          echo "Starting Load Test against Live URL: $BASE_URL"
+          node tests/load/loadTestRunner.js
+
       # Stage 9 & 10: Verify Generated Reports
       - name: "Stage 9 & 10 - Verify Generated Reports"
         if: always()
@@ -137,6 +147,7 @@ jobs:
             Test Results/Screenshots/
             Test Results/Logs/
             Test Results/Summary/
+            tests/load/reports/
           retention-days: 30
           if-no-files-found: warn
 

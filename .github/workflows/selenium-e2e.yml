@@ -40,13 +40,19 @@ jobs:
         run: npm run test:selenium:live
         env:
           HEADLESS: "true"
+          
+      - name: Generate Selenium 400 Cases Excel Report
+        if: always()
+        run: node tests/selenium/selenium400Generator.js
 
       - name: Upload Selenium Artifacts (30-Day Retention)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: RentEase-Selenium-Reports-Build-${{ github.run_number }}
-          path: automation/selenium/reports/
+          path: |
+            automation/selenium/reports/
+            Selenium_Web_E2E_400_Cases*.xlsx
           retention-days: 30
           if-no-files-found: warn
 

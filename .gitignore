@@ -2,6 +2,9 @@ node_modules/
 dist/ 
 .env 
 .env.local 
+.env*.local
 *.log
 android/app/build/ 
 .idea/
+automated_test/
+
