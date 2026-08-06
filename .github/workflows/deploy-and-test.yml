@@ -120,6 +120,10 @@ jobs:
         run: |
           echo "Starting Load Test against Live URL: $BASE_URL"
           node tests/load/loadTestRunner.js
+          
+      - name: Stage 8.6 - Generate Load Test 400 Cases Excel Report
+        if: always()
+        run: node tests/load/load400Generator.js
 
       # Stage 9 & 10: Verify Generated Reports
       - name: "Stage 9 & 10 - Verify Generated Reports"
@@ -148,6 +152,7 @@ jobs:
             Test Results/Logs/
             Test Results/Summary/
             tests/load/reports/
+            Load_Test_400_Cases*.xlsx
           retention-days: 30
           if-no-files-found: warn
 
