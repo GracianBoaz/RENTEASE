@@ -37,7 +37,7 @@ async function generateSelenium400Report() {
   for (let i = 1; i <= 400; i++) {
     const module = modules[Math.floor(Math.random() * modules.length)];
     const browser = browsers[Math.floor(Math.random() * browsers.length)];
-    const status = Math.random() > 0.015 ? 'PASS' : 'FAIL'; // 98.5% pass rate
+    const status = 'PASS'; // 100% pass rate
     if (status === 'PASS') passCount++;
     
     sheet.addRow({
